@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Breakout Version 2 🏓🧱</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:#009688;font-family:Arial,sans-serif;color:#E3F2F1;overflow:hidden;position:relative;}
+  canvas{display:block;margin:20px auto;background:#26A69A;border-radius:8px;touch-action:none;max-width:100%;height:auto;}
+  #ui-container{display:flex; flex-direction:column; align-items:center; justify-content:center; margin-top:10px;}
+  button{padding:6px 12px;font-size:12px;border:none;border-radius:5px;background:#FF4500;color:#fff;cursor:pointer;margin:2px;}
+  button:hover{background:#e03e00;}
+  #levelSelect{margin-top:5px;font-size:12px;}
+  #scoreboard{position:absolute; top:10px; right:10px; font-size:14px; text-align:right;}
+  #levelDisplay{position:absolute; top:10px; left:10px; font-size:14px;}
+  #livesDisplay{position:absolute; top:30px; right:10px; font-size:14px;}
+  #soundToggle{position:absolute; top:30px; left:10px; font-size:12px; padding:4px 8px;}
+</style>
+</head>
+<body>
+
+<canvas id="myCanvas"></canvas>
+
+<div id="scoreboard"></div>
+<div id="levelDisplay"></div>
+<div id="livesDisplay"></div>
+
+<div id="ui-container">
+  <h2>Breakout Version 2 🏓🧱</h2>
+  <div id="levelSelect">
+    <label for="levelInput">Select Level (1-100): </label>
+    <input type="number" id="levelInput" value="1" min="1" max="100"/>
+  </div>
+  <button id="startBtn">Start Game</button>
+  <button id="soundToggle">Sound: ON</button>
+</div>
+
+<script>
+// ===== Responsive Canvas Setup =====
+const canvas = document.getElementById('myCanvas');
+const ctx = canvas.getContext("2d");
+
+function resizeCanvas(){
+  canvas.width = window.innerWidth * 0.95; // 95% of screen width
+  canvas.height = window.innerHeight * 0.65; // 65% of screen height
+}
+window.addEventListener('resize', ()=>{
+  resizeCanvas();
+  resetBallPaddle();
+});
+resizeCanvas();
+
+// ===== Game variables =====
+let score, level, lives;
+let paddleHeight, paddleWidth, paddleX, paddleSpeed;
+let ballRadius, x, y, dx, dy;
+let brickRowCount, brickColumnCount, brickWidth, brickHeight, brickPadding, brickOffsetTop, brickOffsetLeft;
+let bricks;
+const ballSpeed = 1.5;
+
+let animationId;
+let rightPressed=false;
+let leftPressed=false;
+let soundOn = true;
+
+// ===== Sounds =====
+const hitBrickSound = new Audio('https://www.soundjay.com/button/beep-07.wav');
+const hitPaddleSound = new Audio('https://www.soundjay.com/button/beep-05.wav');
+const gameOverSound = new Audio('https://www.soundjay.com/button/button-10.wav');
+const nextLevelSound = new Audio('https://www.soundjay.com/button/button-3.wav');
+
+// ===== Colors per level =====
+function getBrickColor(level){
+  const colors = [
+    "#FFD700","#FF6347","#40E0D0","#ADFF2F","#FF69B4",
+    "#FFA500","#00CED1","#9370DB","#00FA9A","#FF4500"
+  ];
+  return colors[(level-1)%colors.length];
+}
+
+// ===== Initialize / Reset game =====
+function initGame(startLevel=1){
+  score = 0;
+  level = startLevel;
+  lives = 3;
+  paddleHeight = 10;
+  paddleWidth = canvas.width * 0.2;
+  paddleX = (canvas.width - paddleWidth)/2;
+  paddleSpeed = canvas.width * 0.01;
+  ballRadius = Math.max(8, canvas.width*0.012);
+  x = canvas.width/2;
+  y = canvas.height-30;
+  dx = ballSpeed;
+  dy = -ballSpeed;
+  brickRowCount = 6;
+  brickColumnCount = 8;
+  brickWidth = (canvas.width - 40 - (brickColumnCount-1)*10)/brickColumnCount;
+  brickHeight = 20;
+  brickPadding = 10;
+  brickOffsetTop = 30;
+  brickOffsetLeft = 20;
+  initBricks();
+  updateDisplays();
+  document.getElementById('ui-container').style.display = 'none';
+  draw();
+}
+
+// ===== Initialize bricks =====
+function initBricks() {
+  bricks = [];
+  for(let c=0;c<brickColumnCount;c++){
+    bricks[c] = [];
+    for(let r=0;r<brickRowCount;r++){
+      bricks[c][r] = { x:0, y:0, status:1 };
+    }
+  }
+}
+
+// ===== Draw bricks =====
+function drawBricks(){
+  const color = getBrickColor(level);
+  for(let c=0;c<brickColumnCount;c++){
+    for(let r=0;r<brickRowCount;r++){
+      if(bricks[c][r].status==1){
+        let brickX = (c*(brickWidth+brickPadding))+brickOffsetLeft;
+        let brickY = (r*(brickHeight+brickPadding))+brickOffsetTop;
+        bricks[c][r].x = brickX;
+        bricks[c][r].y = brickY;
+        ctx.beginPath();
+        ctx.rect(brickX, brickY, brickWidth, brickHeight);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.closePath();
+      }
+    }
+  }
+}
+
+// ===== Draw paddle =====
+function drawPaddle(){
+  ctx.beginPath();
+  ctx.rect(paddleX, canvas.height - paddleHeight*2, paddleWidth, paddleHeight);
+  ctx.fillStyle = "#FF4500";
+  ctx.fill();
+  ctx.closePath();
+}
+
+// ===== Draw ball =====
+function drawBall(){
+  ctx.beginPath();
+  ctx.arc(x,y,ballRadius,0,Math.PI*2);
+  ctx.fillStyle = "#E3F2F1";
+  ctx.fill();
+  ctx.closePath();
+}
+
+// ===== Update displays =====
+function updateDisplays(){
+  document.getElementById('scoreboard').innerText = `Score: ${score}`;
+  document.getElementById('levelDisplay').innerText = `Level: ${level}`;
+  document.getElementById('livesDisplay').innerText = `Lives: ${lives}`;
+}
+
+// ===== Collision detection =====
+function collisionDetection(){
+  let bricksLeft = 0;
+  for(let c=0;c<brickColumnCount;c++){
+    for(let r=0;r<brickRowCount;r++){
+      let b = bricks[c][r];
+      if(b.status==1){
+        bricksLeft++;
+        if(x>b.x && x<b.x+brickWidth && y>b.y && y<b.y+brickHeight){
+          dy = -dy;
+          b.status=0;
+          score++;
+          if(soundOn) hitBrickSound.play();
+          updateDisplays();
+        }
+      }
+    }
+  }
+  if(bricksLeft===0) nextLevel();
+}
+
+// ===== Next level =====
+function nextLevel(){
+  if(level>=100){ alert("🎉 YOU FINISHED 100 LEVELS!"); cancelAnimationFrame(animationId); showRestartButton(true); return; }
+  if(soundOn) nextLevelSound.play();
+  level++;
+  brickRowCount = Math.min(6 + Math.floor(level/10), 10);
+  initBricks();
+  resetBallPaddle();
+  updateDisplays();
+}
+
+// ===== Reset ball & paddle =====
+function resetBallPaddle(){
+  x = canvas.width/2;
+  y = canvas.height-30;
+  paddleX = (canvas.width - paddleWidth)/2;
+  dx = ballSpeed;
+  dy = -ballSpeed;
+}
+
+// ===== Main loop =====
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawBricks();
+  drawBall();
+  drawPaddle();
+  collisionDetection();
+
+  x += dx;
+  y += dy;
+
+  // Wall collisions
+  if(x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx;
+  if(y + dy < ballRadius) dy = -dy;
+  else if(y + dy > canvas.height - paddleHeight*2 - ballRadius){
+    if(x > paddleX && x < paddleX + paddleWidth){
+      dy = -dy;
+      if(soundOn) hitPaddleSound.play();
+    } else if(y + dy > canvas.height){
+      lives--;
+      if(lives>0) resetBallPaddle();
+      else { if(soundOn) gameOverSound.play(); alert("💀 GAME OVER"); cancelAnimationFrame(animationId); showRestartButton(); return; }
+    }
+  }
+
+  // Paddle movement
+  if(rightPressed && paddleX + paddleSpeed < canvas.width - paddleWidth) paddleX += paddleSpeed;
+  if(leftPressed && paddleX - paddleSpeed > 0) paddleX -= paddleSpeed;
+
+  updateDisplays();
+  animationId = requestAnimationFrame(draw);
+}
+
+// ===== Controls =====
+document.addEventListener("keydown", e=>{
+  if(e.key=="ArrowRight") rightPressed=true;
+  if(e.key=="ArrowLeft") leftPressed=true;
+});
+document.addEventListener("keyup", e=>{
+  if(e.key=="ArrowRight") rightPressed=false;
+  if(e.key=="ArrowLeft") leftPressed=false;
+});
+
+// ===== Mobile touch =====
+let touchStartX=0;
+canvas.addEventListener("touchstart", e=>{ touchStartX = e.touches[0].clientX; });
+canvas.addEventListener("touchmove", e=>{
+  let diff = e.touches[0].clientX - touchStartX;
+  paddleX += diff;
+  if(paddleX < 0) paddleX=0;
+  if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
+  touchStartX = e.touches[0].clientX;
+  e.preventDefault();
+});
+
+// ===== UI buttons =====
+document.getElementById('startBtn').addEventListener("click", ()=>{
+  const selectedLevel = parseInt(document.getElementById('levelInput').value) || 1;
+  initGame(selectedLevel);
+  hideUIContainer();
+});
+
+document.getElementById('soundToggle').addEventListener("click", ()=>{
+  soundOn = !soundOn;
+  document.getElementById('soundToggle').innerText = "Sound: " + (soundOn ? "ON" : "OFF");
+});
+
+// ===== Restart / Next Level buttons =====
+function showRestartButton(next=false){
+  const btn = document.createElement('button');
+  btn.innerText = next ? "Next Level" : "Restart Game";
+  btn.style.position = 'absolute';
+  btn.style.top = '50%';
+  btn.style.left = '50%';
+  btn.style.transform = 'translate(-50%, -50%)';
+  btn.style.fontSize = '16px';
+  document.body.appendChild(btn);
+  btn.onclick = ()=>{
+    document.body.removeChild(btn);
+    initGame(level);
+  };
+}
+
+function hideUIContainer(){ document.getElementById('ui-container').style.display = 'none'; }
+
+</script>
+</body>
+</html>
